@@ -1,0 +1,237 @@
+---
+title: "Final EDA"
+author: "Team 4"
+date: "5/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(fpp)
+library(tseries)
+library(ggplot2)
+library(forecast)
+library(urca)
+library(TSA)
+library(vars)
+library(shape)
+
+library(tidyverse)
+library(lubridate)
+library(clifro)
+library(MASS)
+library(stringr)
+library(zoo)
+library(viridis)
+library(broom)
+library(plotly)
+library(knitr)
+library(dplyr)
+library(aTSA)
+```
+
+## Load in data 
+
+Air temperature (C), Wind Speed (m/s), Wind Direction (degrees from; 0=from N, 90=from E, etc.)
+
+```{r}
+#Read in the file list from folder
+filelist <- list.files("2011-2021", full.names = TRUE)
+filelist <- sort(filelist)
+filelist
+```
+
+
+```{r}
+#Initialize the first file for appending
+r <- read.csv(filelist[1], sep="", header = TRUE)
+head(r, 10)
+```
+
+```{r}
+#Loop to read in all files 
+for (i in 2:length(filelist)){
+  ri <- suppressMessages(read.csv(filelist[i], sep=""))
+  r <- rbind(r, ri)
+} 
+```
+
+```{r}
+df <- r
+df$Date = seq(as.Date("2011-01-01"),as.Date("2011-01-01") + dim(r)[1] - 1,by = 1)
+df$Month <- as.numeric(format(df$Date,'%m'))
+df$Year <- as.numeric(format(df$Date,'%Y'))
+tail(df)
+```
+## Visualization 
+
+### Wind Speed (m/s)
+
+```{r}
+#As TS
+ggplot(df, aes(x = DOY, y = WS, color = Month)) +
+  geom_line()
+#Distribution of all 
+hist(df$WS, main = 'Histogram of Wind Speed (m/s)', xlab = 'Wind Speed (m/s)')
+
+#Box plot by Month
+boxplot(WS~Month,df, ylab = 'Wind Speed (m/s)')
+```
+### Wind Direction
+
+```{r}
+#WD visualization
+windrose(speed = df$WS,
+                 direction =df$WD,
+                 speed_cuts = seq(0,25,5),
+                 ggtheme='minimal')
+```
+
+```{r}
+#As TS
+ggplot(df, aes(x = DOY, y = WD, color = Month)) +
+  geom_line()
+#General Distribution
+hist(df$WD, main = 'Histogram of Wind Direction', xlab = 'Wind Direction')
+#Box plot by Month
+boxplot(WD~Month,df, ylab = 'Wind Direction')
+```
+
+### Air Tempreture
+```{r}
+#As TS
+ggplot(df, aes(x = DOY, y = AT, color = Month)) +
+  geom_line()
+#General Distribution
+hist(df$AT, main = 'Histogram of Air Tempreture', xlab = 'Air Tempreture')
+#Box plot by Month
+boxplot(AT~Month,df, ylab = 'Air Tempreture')
+```
+
+We see obvious outliers from the line plot and histogram on 2019 May. 
+
+```{r}
+#qplots
+qplot(WD,WS,data=df,color=Month,geom = c("point","smooth"),facets = .~Month)
+qplot(AT,WS,data=df,color=Month,geom = c("point","smooth"),facets = .~Month)
+```
+
+```{r}
+cor(df$WS,df$AT)
+```
+
+
+```{r}
+cor(df$WS,df$WD)
+```
+
+A value of 0.21, -0.22 shows there is a positive correlation between two variables, but it is weak and likely unimportant.
+
+### Data Aggregation 
+
+We wanted to explore wind speed change monthly, hence we aggregate our data into monthly averages.
+
+
+```{r}
+df.agg <- df %>% group_by(Year, Month) %>% summarize(m_ws = mean(WS), m_at = mean(AT), m_wd = mean(WD))
+```
+
+
+```{r}
+#Rounding 
+df.agg$m_ws <- round(df.agg$m_ws, digits = 5)
+df.agg$m_at <- round(df.agg$m_at, digits = 5)
+df.agg$m_wd <- round(df.agg$m_wd, digits = 5)
+```
+
+```{r}
+#Reset row index
+df.agg$Order <- 1:nrow(df.agg)
+df.agg
+```
+
+## Visualization of Aggregated Data
+
+### Wind Speed (m/s)
+
+```{r}
+#As TS
+ggplot(df.agg, aes(x = Order, y = m_ws, color = Month)) +
+  geom_line()
+#Distribution of all 
+hist(df.agg$m_ws, main = 'Histogram of Wind Speed (m/s)', xlab = 'Wind Speed (m/s)')
+
+#Box plot by Month
+boxplot(m_ws~Month,df.agg, ylab = 'Wind Speed (m/s)')
+```
+### Wind Direction
+
+
+```{r}
+windrose(speed = df.agg$m_ws,
+                 direction =df.agg$m_wd,
+                 speed_cuts = seq(0,10,2),
+                 ggtheme='minimal')
+```
+
+
+```{r}
+#As TS
+ggplot(df.agg, aes(x = Order, y = m_wd, color = Month)) +
+  geom_line()
+#General Distribution
+hist(df.agg$m_wd, main = 'Histogram of Wind Direction', xlab = 'Wind Direction')
+#Box plot by Month
+boxplot(m_wd~Month,df.agg, ylab = 'Wind Direction')
+```
+### Air Tempreture 
+```{r}
+#As TS
+ggplot(df.agg, aes(x = Order, y = m_at, color = Month)) +
+  geom_line()
+#General Distribution
+hist(df.agg$m_at, main = 'Histogram of Air Tempreture', xlab = 'Wind Tempreture')
+#Box plot by Month
+boxplot(m_at~Month,df.agg, ylab = 'Wind Tempreture')
+```
+We see an extreme outlier in our air temperature dataset. 
+
+```{r}
+#Getting outliers at day to day level 
+at.outliers <- boxplot(df.agg$m_at, plot=FALSE)$out
+df.agg[which(df.agg$m_at %in% at.outliers),]
+#which(demo.data$score > quantile(demo.data$score)[4] + 1.5*IQR(demo.data$score)
+```
+We see the record from 2019 May that has an unusual air temperature at -47.25484.
+
+```{r}
+hist(df[which(df$Year == 2019 & df$Month == 5),'AT'], xlab = 'Air Temperature', main= 'Daily Air Temperature from 2019 May')
+```
+
+
+We see an unusual pattern of distribution which have much data points at -99 air temperature. We consider them corrupted data and hence replace the monthly air temperature from 2019 May with the average of May air temperature from other years.
+
+```{r}
+#New temp as the average of May air temperature from other years
+new_at <- mean(unlist(df.agg[which(df.agg$Month == 5 & df.agg$Year != 2019),'m_at']))
+df.agg[which(df.agg$m_at %in% at.outliers),'m_at'] <- new_at
+df.agg$m_at
+```
+
+Checking the distribution of air temperature after taking out the outlier.
+
+```{r}
+#As TS
+ggplot(df.agg, aes(x = Order, y = m_at, color = Month)) +
+  geom_line()
+#General Distribution
+hist(df.agg$m_at, main = 'Histogram of Air Tempreture', xlab = 'Wind Tempreture')
+#Box plot by Month
+boxplot(m_at~Month,df.agg, ylab = 'Wind Tempreture')
+```
+We see the outlier is removed while maintaining the original shape of distribution.
+
+
+```{r}
+#write.csv(r, 'all_days.csv')
+write.csv(df.agg, 'agg.csv')
+```
